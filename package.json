@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-minecraft-rcon-command",
-  "description": "通过rcon实现查看在线人数，添加白名单等功能",
-  "version": "1.0.0",
+  "description": "通过rcon实现查看在线人数，添加白名单等功能，需要python3环境",
+  "version": "1.1.2",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "homepage": "https://github.com/Apricityx/Koishi-plugin-Minecraft-RCON.git",
@@ -19,9 +19,9 @@
     "Apricityx <apricityx@qq.com>"
   ],
   "keywords": [
-    "NRL",
-    "生草",
-    "草图"
+    "Minecraft",
+    "RCON",
+    "Koishi"
   ],
   "peerDependencies": {
     "koishi": "^4.16.4"

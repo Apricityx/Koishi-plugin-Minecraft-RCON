@@ -1,10 +1,6 @@
 from rcon import MCRcon
 import sys
 
-# server = 'pve.zwtsvx.xyz'
-# port = 2541
-# password = 'MCT-RCON-114514'
-
 temp = sys.argv[1]
 server, port, password, func, arg = temp.split(',')
 port = int(port)
@@ -20,6 +16,8 @@ def main(func, args):
         return whitelist(args)
     elif func == 'whitelist_remove':
         return whitelist_remove(args)
+    elif func == 'run_command':
+        return run_command(args)
     else:
         return 'Unknown command'
 
@@ -45,6 +43,12 @@ def whitelist(arg):
 def whitelist_remove(arg):
     with MCRcon(server, password, port) as mcr:
         resp = mcr.command('/whitelist remove ' + arg)
+        return resp
+
+
+def run_command(arg):
+    with MCRcon(server, password, port) as mcr:
+        resp = mcr.command(arg)
         return resp
 
 
