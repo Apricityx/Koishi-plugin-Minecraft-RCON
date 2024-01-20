@@ -21,8 +21,8 @@ export const Config: Schema<Config> = Schema.object({
     path: Schema.string().description('python脚本路径(一般不需要动)').default('/node_modules/koishi-plugin-minecraft-rcon-command/lib/Minecraft-Rcon/main.py'),
     vote_server: Schema.string().description('投票指令执行的服务器的序号（上边的servers的序号，从0开始）').default('0'),
     vote_timeout: Schema.number().description('投票持续时间(s)').default(100),
-    vote_max: Schema.number().description('几人投票运行命令').default(3),
-    group: Schema.array(Schema.number()).description('允许使用的群号').default([]),
+    vote_max: Schema.number().description('几人投票视为通过').default(3),
+    group: Schema.array(Schema.string()).description('允许使用的群号').default([]),
 })
 
 export function apply(ctx: Context, config: Config) {
@@ -33,6 +33,7 @@ export function apply(ctx: Context, config: Config) {
     const order = parseInt(config['vote_server'])
     const ifDebug = config['debug']
     const logger = ctx.logger('Debug')
+    let time_counter: number = config['vote_timeout']
     const timeout = config['timeout']
 
     function debug(text: any) {
@@ -134,10 +135,19 @@ export function apply(ctx: Context, config: Config) {
     ctx.command('!!run <arg:text>')
         .action(async ({session}, arg: string) => {
             debug('尝试发起投票')
+            if (arg == null) {
+                session.send('发起方法：!!run [指令]')
+                return
+            }
             if ('/' == arg[0]) {
                 if (vote != 0) {
                     session.send('当前已有人发起投票，无法再次发起\n使用!!vote yes/no 进行投票')
                     return
+                }
+                if (group.indexOf(session.event.channel.id.toString()) == -1) {
+                    session.send('发起投票失败，此群不在允许使用的群列表中，别干坏事哦')
+                    debug('发起投票失败，原因：此群不在允许使用的群列表中，群聊：' + session.event.channel.id + '当前允许的群聊：' + group)
+                    return;
                 }
                 vote = 1
                 member.push(session.user)
@@ -149,7 +159,7 @@ export function apply(ctx: Context, config: Config) {
                 let origin = address + ',' + port + ',' + password
                 let result = await if_vote_result({session}, arg)
                 if (result == 'timeout') {
-                    session.send('投票超时')
+                    session.send('投票超时，投票已取消')
                 }
                 if (result == 'pass') {
                     let resp = await run('run_command', arg, origin, name)
@@ -177,7 +187,7 @@ export function apply(ctx: Context, config: Config) {
                 session.send('!!run [指令] 发起投票\n!!vote yes/no 进行投票\n!!vote cancel 取消投票')
                 return
             }
-            if (member.indexOf(session.user) == -1 && group.indexOf(session.event.channel) != -1) {
+            if (member.indexOf(session.user) == -1 && group.indexOf(session.event.channel.id.toString()) != -1) {
                 member.push(session.user)
                 if (vote == 0) {
                     session.send('当前无人发起指令投票\n请使用!!run [指令] 发起投票')
@@ -185,7 +195,8 @@ export function apply(ctx: Context, config: Config) {
                 }
                 if (arg == 'yes') {
                     vote++
-                    debug('同意票 +1')
+                    time_counter = config['timeout']
+                    debug('同意票 +1，重置倒计时')
                 }
                 if (arg == 'no') {
                     vote = -1
@@ -195,30 +206,27 @@ export function apply(ctx: Context, config: Config) {
                     session.send('请输入!!vote yes或!!vote no')
                 }
             } else {
-                if (group.indexOf(session.event.channel) == -1) {
+                if (group.indexOf(session.event.channel.id) == -1) {
                     session.send('此群不在允许使用的群列表中，别干坏事哦')
                     vote = -2
-                    debug('投票失败，原因：此群不在允许使用的群列表中')
+                    debug('投票失败，原因：此群不在允许使用的群列表中，群聊：' + session.event.channel.id + '当前允许的群聊：' + group)
                     return;
                 }
-                if (member.indexOf(session.user) != -1) {
+                if (arg == 'cancel') {
+                    vote = -2
+                } else if (member.indexOf(session.user) != -1) {
                     debug('投票失败，原因：已经投过票了')
+                    session.send('你已经投过票了')
                 }
             }
-            if (arg == 'cancel') {
-                vote = -2
-            }
-            if (member.indexOf(session.user) != -1) {
-                session.send('你已经投过票了')
-            }
+
         })
 
     async function if_vote_result({session}, arg) {
-        const time_counter = config['vote_timeout']
         let vote_change = 0
         while (1) {
             if (vote >= vote_max) {
-                session.send('投票通过！')
+                session.send('投票通过！正在执行指令：' + arg)
                 return 'pass'
             }
             if (vote == -2) {
@@ -231,6 +239,7 @@ export function apply(ctx: Context, config: Config) {
                 vote_change = vote
                 session.send('已发起投票，是否决定运行指令' + arg + '\n投票进度：' + vote + '/' + vote_max + '\n使用!!vote yes/no 进行投票')
             }
+            time_counter--
             if (time_counter == 0) {
                 return 'timeout'
             }
