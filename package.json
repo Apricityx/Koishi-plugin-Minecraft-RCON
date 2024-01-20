@@ -1,19 +1,27 @@
 {
   "name": "koishi-plugin-minecraft-rcon-command",
   "description": "通过rcon实现查看在线人数，添加白名单等功能",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
+  "homepage": "https://github.com/Apricityx/Koishi-plugin-Minecraft-RCON.git",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Apricityx/Koishi-plugin-Minecraft-RCON.git"
+  },
   "files": [
     "lib",
     "dist"
   ],
   "license": "MIT",
   "scripts": {},
+  "contributors": [
+    "Apricityx <apricityx@qq.com>"
+  ],
   "keywords": [
-    "chatbot",
-    "koishi",
-    "plugin"
+    "NRL",
+    "生草",
+    "草图"
   ],
   "peerDependencies": {
     "koishi": "^4.16.4"
