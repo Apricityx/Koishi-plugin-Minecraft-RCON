@@ -152,7 +152,7 @@ export function apply(ctx: Context, config: Config) {
                 vote = 1
                 time_counter = parseInt(config['vote_timeout'])
                 debug("条件满足，已发起投票")
-                member.push(session.user)
+                member.push(session.userId)
                 server = servers[order]
                 let address = server['address']
                 let port = server['port']
@@ -191,19 +191,19 @@ export function apply(ctx: Context, config: Config) {
             }
             if (arg == 'cancel') {
                 vote = -2
-                session.send("投票被取消")
                 return;
             }
             if (group.indexOf(session.event.channel.id.toString()) != -1) { //判断是否是可用的群聊
-                if (member.indexOf(session.user) == -1) { //判断用户是否投过票
-                    member.push(session.user)
+                if (member.indexOf(session.userId) == -1) { //判断用户是否投过票
+                    member.push(session.userId)
+                    debug('用户' + session.userId + '投票' + arg)
                     if (vote == 0) {
                         session.send('当前无人发起指令投票\n请使用!!run [指令] 发起投票')
                         return
                     }
                     if (arg == 'yes') {
                         vote++
-                        time_counter = config['timeout']
+                        time_counter = parseInt(config['vote_timeout'])
                         debug('同意票 +1，重置倒计时')
                     }
                     if (arg == 'no') {
