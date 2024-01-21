@@ -33,7 +33,7 @@ export function apply(ctx: Context, config: Config) {
     const order = parseInt(config['vote_server'])
     const ifDebug = config['debug']
     const logger = ctx.logger('Debug')
-    let time_counter: number = config['vote_timeout']
+    let time_counter: number = parseInt(config['vote_timeout'])
     const timeout = config['timeout']
 
     function debug(text: any) {
@@ -150,6 +150,8 @@ export function apply(ctx: Context, config: Config) {
                     return;
                 }
                 vote = 1
+                time_counter = parseInt(config['vote_timeout'])
+                debug("条件满足，已发起投票")
                 member.push(session.user)
                 server = servers[order]
                 let address = server['address']
@@ -187,39 +189,40 @@ export function apply(ctx: Context, config: Config) {
                 session.send('!!run [指令] 发起投票\n!!vote yes/no 进行投票\n!!vote cancel 取消投票')
                 return
             }
-            if (member.indexOf(session.user) == -1 && group.indexOf(session.event.channel.id.toString()) != -1) {
-                member.push(session.user)
-                if (vote == 0) {
-                    session.send('当前无人发起指令投票\n请使用!!run [指令] 发起投票')
-                    return
-                }
-                if (arg == 'yes') {
-                    vote++
-                    time_counter = config['timeout']
-                    debug('同意票 +1，重置倒计时')
-                }
-                if (arg == 'no') {
-                    vote = -1
-                    debug('投票被一票否决')
-                }
-                if (arg != 'yes' && arg != 'no') {
-                    session.send('请输入!!vote yes或!!vote no')
-                }
-            } else {
-                if (group.indexOf(session.event.channel.id) == -1) {
-                    session.send('此群不在允许使用的群列表中，别干坏事哦')
-                    vote = -2
-                    debug('投票失败，原因：此群不在允许使用的群列表中，群聊：' + session.event.channel.id + '当前允许的群聊：' + group)
-                    return;
-                }
-                if (arg == 'cancel') {
-                    vote = -2
-                } else if (member.indexOf(session.user) != -1) {
+            if (arg == 'cancel') {
+                vote = -2
+                session.send("投票被取消")
+                return;
+            }
+            if (group.indexOf(session.event.channel.id.toString()) != -1) { //判断是否是可用的群聊
+                if (member.indexOf(session.user) == -1) { //判断用户是否投过票
+                    member.push(session.user)
+                    if (vote == 0) {
+                        session.send('当前无人发起指令投票\n请使用!!run [指令] 发起投票')
+                        return
+                    }
+                    if (arg == 'yes') {
+                        vote++
+                        time_counter = config['timeout']
+                        debug('同意票 +1，重置倒计时')
+                    }
+                    if (arg == 'no') {
+                        vote = -1
+                        debug('投票被一票否决')
+                    }
+                    if (arg != 'yes' && arg != 'no') {
+                        session.send('请输入!!vote yes或!!vote no')
+                    }
+                } else {
                     debug('投票失败，原因：已经投过票了')
                     session.send('你已经投过票了')
                 }
+            } else {
+                session.send('此群不在允许使用的群列表中，别干坏事哦')
+                vote = -2
+                debug('投票失败，原因：此群不在允许使用的群列表中，群聊：' + session.event.channel.id + '当前允许的群聊：' + group)
+                return;
             }
-
         })
 
     async function if_vote_result({session}, arg) {
