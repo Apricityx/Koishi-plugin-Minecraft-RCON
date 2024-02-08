@@ -46,11 +46,33 @@ export function apply(ctx: Context, config: Config) {
 
     const servers = config['servers']
     debug('从配置文件中获取：' + servers.length + '个服务器')
+    let __ifOK = 0
+    let __select = -2 // -2表示未选择
+    let __select_id = '0'
+    let __time = []
+    for (let i = 0; i < servers.length; i++) {
+        __time.push(i)
+    }
+    debug('服务器选择序号：' + __time)
+    ctx.middleware((session, next) => {
+        if (session.userId == __select_id) {
+            if (session.content in __time) {
+                debug('用户已选择')
+                __ifOK = 1
+                __select = parseInt(session.content)
+                return
+            }
+            else {
+                session.send('请输入正确的序号')
+            }
+        }
+    })
 
     //选择服务器ID
     async function select_server({session}, id: string) {
-        let __ifOK = 0
-        let __select = -2 // -2表示未选择
+        __ifOK = 0
+        __select = -2
+        __select_id = id
         let counter = config['vote_timeout']
         while (counter != 0) {
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -61,13 +83,6 @@ export function apply(ctx: Context, config: Config) {
             if (__ifOK == 1) {
                 return __select
             }
-
-            ctx.middleware((session, next) => {
-                if (session.userId == id) {
-                    __ifOK = 1
-                    __select = parseInt(session.content)
-                }
-            })
         }
     }
 
