@@ -355,4 +355,27 @@ export function apply(ctx: Context, config: Config) {
             return
         }
     })
+    ctx.command('!!online').action(async ({session}) => {
+        let data = []
+        for (let i = 0; i < servers.length; i++) {
+            let result = await send_command('/list', servers[i])
+            if (result === '连接超时') {
+                session.send('服务器' + servers[i].name + '连接超时')
+                return
+            }
+            if (result.startsWith('There are')) {
+                //在线人数在are和of之间
+                let online_num = result.split('are')[1].split('of')[0]
+                if (online_num === ' 0 ') {
+                    data.push('服务器' + servers[i].name + '无人在线\n')
+                } else {
+                    let person = result.split('online')
+                    data.push('服务器' + servers[i].name + '在线玩家：' + person + '\n')
+                }
+            } else {
+                data.push('服务器' + servers[i].name + '连接失败\n')
+            }
+        }
+        simple_reply(session, data.join(''))
+    })
 }
