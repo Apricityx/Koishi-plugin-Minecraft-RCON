@@ -8,6 +8,7 @@ export const name = 'minecraft-rcon-command'
 export interface Config {
 }
 
+export const usage = 'Minecraft RCON指令插件'
 export const Config: Schema<Config> = Schema.object({
     servers: Schema.array(Schema.object({
         name: Schema.string().description('服务器名称').default('114514'),
@@ -19,8 +20,9 @@ export const Config: Schema<Config> = Schema.object({
     select_timeout: Schema.number().description('选择服务器超时时间(s)').default(100),
     vote_num: Schema.number().description('多少人投同意票视为投票通过').default(3),
     vote_timeout: Schema.number().description('投票超时时间(s)').default(60),
+    if_add_all_whitelist: Schema.boolean().default(false).description('是否添加该人到所有服务器的白名单'),
     path: Schema.string().description('python脚本路径(一般不需要动)').default('/node_modules/koishi-plugin-minecraft-rcon-command/lib/Minecraft-Rcon/main.py'),
-    debug: Schema.boolean().default(false)
+    debug: Schema.boolean().default(false),
 })
 var __voting = false
 var __selecting = false
@@ -31,9 +33,18 @@ var __vote_person_userid = []
 var __last_execute_element_id = ''
 
 export function apply(ctx: Context, config: Config) {
+    function simple_reply(session: any, text: string) {
+        session.send(<>
+            <quote id={(session.messageId).toString()}/>
+            <at id={session.userId}/>
+            {'\n' + text}
+        </>)
+    }
+
     ctx.middleware((session, next) => {
         __session_now = session
     })
+    const if_add_all_whitelist = config['if_add_all_whitelist']
     const ifDebug = config['debug']
     const servers = config['servers']
     const path = config['path']
@@ -184,12 +195,14 @@ export function apply(ctx: Context, config: Config) {
             return
         }
         __voting = true
+        __vote_progress = ''
         for (let i = 0; i < config['vote_num']; i++) {
             __vote_progress = __vote_progress + '◇ '
         }
         debug('开始投票,进度条:' + __vote_progress)
         let vote_num = 1
         __vote_progress = __vote_progress.replace('◇', '◆')
+        __vote_person_userid.push(session.userId)
         session.send(<>
             <quote id={(session.messageId).toString()}/>
             {'投票已发起\n' + '当前投票进度：' + __vote_progress}</>)
@@ -221,6 +234,7 @@ export function apply(ctx: Context, config: Config) {
             debug('满足条件，停止选择')
             return
         } else {
+            simple_reply(session, '当前没有选择任务')
             debug('不满足停止选择条件')
         }
     })
@@ -247,28 +261,98 @@ export function apply(ctx: Context, config: Config) {
         debug('投票结果：' + result)
     })
     ctx.command('!!run <arg:text>').action(async ({session}, arg) => {
+        if (!(arg.startsWith('/'))) {
+            debug('指令不以/开头，自动添加/前缀')
+            arg = '/' + arg
+        }
         debug('收到指令：' + arg + ' 开始选择服务器')
         let server_list = servers.map((server: any) => server.name)
         let data = server_list.map((server: any, index: number) => '[' + index + '] ' + server).join('\n')
         session.send(<>
             <quote id={(session.messageId).toString()}/>
             <at id={session.userId}/>
-            {'请选择需要执行命令的服务器：\n'}{data}</>)
+            {'\n请选择需要执行命令的服务器：\n'}{data}</>)
         let server_num = await select_server(servers, {session})
         if (server_num === -1) return
         let server = servers[server_num]
+        let if_run = await vote({session})
+        if (!if_run) {
+            return
+        }
         session.send(<>
             <at id={session.userId}/>
-            {'选择了服务器：' + server.name + ' 请稍后...'}
+            {'\n投票通过！\n投票结果：' + __vote_progress + '\n已向服务器：' + server.name + ' 发送指令' + arg + '，请稍后...'}
         </>)
         debug('选择服务器完成' + '选择的服务器为：' + server.name)
         let result = await send_command(arg, server)
         if (result === '连接超时') {
-            session.send('连接超时')
+            session.send('服务器' + server.name + '连接超时')
             return
         }
-        session.send(result)
-
+        session.send('指令：' + arg + ' 执行成功\n服务器返回：' + result)
+    })
+    ctx.command('!!whitelist <arg:text>').action(async ({session}, arg) => {
+        let args = []
+        let data = []
+        try {
+            args = arg.split(' ')
+            if (args.length !== 2) {
+                simple_reply(session, '参数错误')
+                return
+            }
+            if (args[0] == 'add') {
+                let result = await send_command('/whitelist add ' + args[1], servers[0])
+                if (result === '连接超时') {
+                    session.send('服务器' + servers[0].name + '连接超时')
+                    return
+                }
+                if (if_add_all_whitelist) {
+                    data.push('\n尝试将玩家' + args[1] + '添加至服务器白名单，执行结果如下：\n')
+                    simple_reply(session, '执行中，请稍后...')
+                    for (let i = 0; i < servers.length; i++) {
+                        debug('尝试将玩家' + args[1] + '添加至服务器白名单，执行结果如下：\n' + data.join(''))
+                        let result = await send_command('/whitelist add ' + args[1], servers[i])
+                        if (result === '连接超时') {
+                            data.push('服务器' + servers[i].name + '连接超时\n')
+                            return
+                        }
+                        if (result.startsWith('Player is already whitelisted')) {
+                            data.push('服务器' + servers[i].name + '已经存在该玩家，跳过添加\n')
+                        } else if (result.startsWith('Added')) {
+                            data.push('服务器' + servers[i].name + '添加成功\n')
+                        } else {
+                            data.push('服务器' + servers[i].name + '添加失败，服务器未响应\n')
+                        }
+                    }
+                } else {
+                    let server_list = servers.map((server: any) => server.name)
+                    let server_list1 = server_list.map((server: any, index: number) => '[' + index + '] ' + server).join('\n')
+                    session.send(<>
+                        <quote id={(session.messageId).toString()}/>
+                        <at id={session.userId}/>
+                        {'\n请选择需要执行命令的服务器：\n'}{server_list1}</>)
+                    let server_num = await select_server(servers, {session})
+                    if (server_num === -1) return
+                    let server = servers[server_num]
+                    result = await send_command('/whitelist add ' + args[1], server)
+                    data.push('\n尝试将玩家' + args[1] + '添加至服务器白名单，执行结果如下：\n')
+                    if (result === '连接超时') {
+                        session.send('服务器' + server.name + '连接超时')
+                        return
+                    }
+                    if (result.startsWith('Player is already whitelisted')) {
+                        data.push('服务器' + server.name + '已经存在该玩家，跳过添加\n')
+                    } else if (result.startsWith('Added')) {
+                        data.push('服务器' + server.name + '添加成功\n')
+                    } else {
+                        data.push('服务器' + server.name + '添加失败，服务器未响应\n')
+                    }
+                }
+                simple_reply(session, data.join(''))
+            }
+        } catch (e) {
+            simple_reply(session, '参数错误')
+            return
+        }
     })
 }
-
