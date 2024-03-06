@@ -20,6 +20,7 @@ export const Config: Schema<Config> = Schema.object({
     select_timeout: Schema.number().description('选择服务器超时时间(s)').default(100),
     vote_num: Schema.number().description('多少人投同意票视为投票通过').default(3),
     vote_timeout: Schema.number().description('投票超时时间(s)').default(60),
+    allowed_groups: Schema.array(Schema.string()).description('允许使用的群').default([]),
     if_add_all_whitelist: Schema.boolean().default(false).description('是否添加该人到所有服务器的白名单'),
     path: Schema.string().description('python脚本路径(一般不需要动)').default('/node_modules/koishi-plugin-minecraft-rcon-command/lib/Minecraft-Rcon/main.py'),
     debug: Schema.boolean().default(false),
@@ -41,7 +42,7 @@ export function apply(ctx: Context, config: Config) {
         </>)
     }
 
-    ctx.middleware((session, next) => {
+    ctx.on('message', (session) => {
         __session_now = session
     })
     const if_add_all_whitelist = config['if_add_all_whitelist']
@@ -69,11 +70,18 @@ export function apply(ctx: Context, config: Config) {
             command = '/' + command
         }
         debug('尝试发送指令' + command + '到服务器：' + server.name)
-        let py_path = ctx.baseDir + path
+        let py_path: string
+        if (path.startsWith('/')) {
+            py_path = ctx.baseDir + path
+        } else if (path.startsWith('D:') || path.startsWith('C:') || path.startsWith('E:')) {
+            py_path = path
+        } else {
+            py_path = ctx.baseDir + path
+        }
         debug('python脚本路径为：' + py_path)
         let data = server.address + ',' + server.port + ',' + server.password + ',' + command
         let output = ''
-        const python = spawn('python', [path, data]) // data需要满足的值为：server,port,password,command,arg
+        const python = spawn('python', [py_path, data]) // data需要满足的值为：server,port,password,command,arg
         python.stdout.on('data', function (data) {
             debug('python输出: ' + data.toString())
             output = data.toString()
@@ -128,7 +136,9 @@ export function apply(ctx: Context, config: Config) {
 
             counter -= 1
             if (counter === 0) {
-                session.send('选择超时')
+                session.send(<>
+                    <quote id={(session.messageId).toString()}/>
+                </>)
                 __selecting = false
                 return -1
             }
@@ -196,6 +206,7 @@ export function apply(ctx: Context, config: Config) {
         }
         __voting = true
         __vote_progress = ''
+        let counter = vote_timeout
         for (let i = 0; i < config['vote_num']; i++) {
             __vote_progress = __vote_progress + '◇ '
         }
@@ -208,6 +219,14 @@ export function apply(ctx: Context, config: Config) {
             {'投票已发起\n' + '当前投票进度：' + __vote_progress}</>)
         while (vote_timeout > 0) {
             await new Promise(resolve => setTimeout(resolve, 1000))
+            counter -= 1
+            if (counter === 0) {
+                __vote_result = -1
+                __vote_person_userid = []
+                __voting = false
+                simple_reply(session, '投票超时，投票失败')
+                return false
+            }
             if (__vote_result === 1) {
                 vote_num += 1
                 __vote_result = -1 //-1代表未选择
@@ -231,6 +250,7 @@ export function apply(ctx: Context, config: Config) {
     ctx.command('!!stop').action(({session}) => {
         if (__selecting) {
             stop_flag = true
+            __selecting = false
             debug('满足条件，停止选择')
             return
         } else {
@@ -261,6 +281,10 @@ export function apply(ctx: Context, config: Config) {
         debug('投票结果：' + result)
     })
     ctx.command('!!run <arg:text>').action(async ({session}, arg) => {
+        if (!(config['allowed_groups'].includes(session.channelId.toString()))) {
+            await session.send('该群不在允许范围内，别干坏事哦~')
+            return
+        }
         if (!(arg.startsWith('/'))) {
             debug('指令不以/开头，自动添加/前缀')
             arg = '/' + arg
@@ -268,18 +292,22 @@ export function apply(ctx: Context, config: Config) {
         debug('收到指令：' + arg + ' 开始选择服务器')
         let server_list = servers.map((server: any) => server.name)
         let data = server_list.map((server: any, index: number) => '[' + index + '] ' + server).join('\n')
-        session.send(<>
+        await session.send(<>
             <quote id={(session.messageId).toString()}/>
             <at id={session.userId}/>
             {'\n请选择需要执行命令的服务器：\n'}{data}</>)
         let server_num = await select_server(servers, {session})
         if (server_num === -1) return
         let server = servers[server_num]
+        await session.send(<>
+            <quote id={(session.messageId).toString()}/>
+            <at id={session.userId}/>
+            {'发起了运行指令请求' + '\n运行指令：' + arg + '\n使用!!vote yes/no来投票\n使用!!stop来强制终止投票'}</>)
         let if_run = await vote({session})
         if (!if_run) {
             return
         }
-        session.send(<>
+        await session.send(<>
             <at id={session.userId}/>
             {'\n投票通过！\n投票结果：' + __vote_progress + '\n已向服务器：' + server.name + ' 发送指令' + arg + '，请稍后...'}
         </>)
@@ -289,7 +317,7 @@ export function apply(ctx: Context, config: Config) {
             session.send('服务器' + server.name + '连接超时')
             return
         }
-        session.send('指令：' + arg + ' 执行成功\n服务器返回：' + result)
+        await session.send('指令：' + arg + ' 执行成功\n服务器返回：' + result)
     })
     ctx.command('!!whitelist <arg:text>').action(async ({session}, arg) => {
         let args = []
@@ -327,7 +355,7 @@ export function apply(ctx: Context, config: Config) {
                 } else {
                     let server_list = servers.map((server: any) => server.name)
                     let server_list1 = server_list.map((server: any, index: number) => '[' + index + '] ' + server).join('\n')
-                    session.send(<>
+                    await session.send(<>
                         <quote id={(session.messageId).toString()}/>
                         <at id={session.userId}/>
                         {'\n请选择需要执行命令的服务器：\n'}{server_list1}</>)
@@ -360,7 +388,7 @@ export function apply(ctx: Context, config: Config) {
         for (let i = 0; i < servers.length; i++) {
             let result = await send_command('/list', servers[i])
             if (result === '连接超时') {
-                session.send('服务器' + servers[i].name + '连接超时')
+                await session.send('服务器' + servers[i].name + '连接超时')
                 return
             }
             if (result.startsWith('There are')) {
@@ -369,7 +397,7 @@ export function apply(ctx: Context, config: Config) {
                 if (online_num === ' 0 ') {
                     data.push('服务器' + servers[i].name + '无人在线\n')
                 } else {
-                    let person = result.split('online')
+                    let person = result.split(':')[1]
                     data.push('服务器' + servers[i].name + '在线玩家：' + person + '\n')
                 }
             } else {
